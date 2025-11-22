@@ -52,8 +52,25 @@ class UpdateMe_Soft_Cache_Admin {
             echo '<div class="notice notice-success"><p>Caché borrado correctamente.</p></div>';
         }
 
+        if ( isset( $_POST['um_soft_cache_purge_url'] ) ) {
+            check_admin_referer( 'um_soft_cache_purge_url_action', 'um_soft_cache_purge_url_nonce' );
+            $url = isset( $_POST['um_soft_cache_url'] ) ? esc_url_raw( wp_unslash( $_POST['um_soft_cache_url'] ) ) : '';
+
+            if ( empty( $url ) ) {
+                echo '<div class="notice notice-error"><p>Introduce una URL para purgar.</p></div>';
+            } else {
+                $purged = UpdateMe_Soft_Cache::instance()->purge_url( $url );
+                if ( $purged ) {
+                    echo '<div class="notice notice-success"><p>La página se purgó del caché.</p></div>';
+                } else {
+                    echo '<div class="notice notice-warning"><p>No había una copia en caché para esa URL.</p></div>';
+                }
+            }
+        }
+
         $enabled = (bool) get_option( 'um_soft_cache_enabled', 1 );
         $ttl     = (int) get_option( 'um_soft_cache_ttl', 600 );
+        $stats   = UpdateMe_Soft_Cache::instance()->get_cache_stats();
         ?>
         <div class="wrap">
             <h1>UpdateMe Soft Cache</h1>
@@ -85,10 +102,24 @@ class UpdateMe_Soft_Cache_Admin {
 
             <hr>
 
+            <h2>Estado rápido</h2>
+            <p><strong>Páginas en caché:</strong> <?php echo intval( $stats['count'] ); ?></p>
+            <p><strong>Espacio usado:</strong> <?php echo size_format( $stats['size'] ); ?></p>
+
+            <hr>
+
             <h2>Purgar caché</h2>
             <form method="post">
                 <?php wp_nonce_field( 'um_soft_cache_purge_all_action', 'um_soft_cache_purge_all_nonce' ); ?>
                 <?php submit_button( 'Purgar todo el caché', 'delete', 'um_soft_cache_purge_all' ); ?>
+            </form>
+
+            <h3>Purgar una página concreta</h3>
+            <p>Útil si acabas de actualizar una noticia o landing y quieres que los lectores vean los cambios al instante.</p>
+            <form method="post">
+                <?php wp_nonce_field( 'um_soft_cache_purge_url_action', 'um_soft_cache_purge_url_nonce' ); ?>
+                <input type="url" name="um_soft_cache_url" class="regular-text" placeholder="https://tusitio.com/mi-noticia" required />
+                <?php submit_button( 'Purgar esta URL', 'secondary', 'um_soft_cache_purge_url', false ); ?>
             </form>
         </div>
         <?php

@@ -28,6 +28,8 @@ class UpdateMe_Soft_Cache {
         if ( is_admin() || wp_doing_ajax() || wp_doing_cron() || defined( 'REST_REQUEST' ) ) return;
         if ( is_user_logged_in() ) return;
 
+        if ( is_search() || is_feed() || is_trackback() || is_robots() || is_preview() ) return;
+
         $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
         if ( strtoupper( $method ) !== 'GET' ) return;
 
@@ -49,6 +51,22 @@ class UpdateMe_Soft_Cache {
         $device = preg_match( '/(Mobile|Android|iPhone)/i', $ua ) ? 'm' : 'd';
 
         return md5( "{$scheme}://{$host}{$uri}|{$device}" );
+    }
+
+    protected function get_cache_key_from_url( $url, $device = 'd' ) {
+        $parts = wp_parse_url( $url );
+
+        if ( empty( $parts['scheme'] ) ) {
+            $url = home_url( $url );
+            $parts = wp_parse_url( $url );
+        }
+
+        $scheme = $parts['scheme'] ?? 'http';
+        $host   = $parts['host'] ?? '';
+        $path   = $parts['path'] ?? '/';
+        $query  = isset( $parts['query'] ) ? '?' . $parts['query'] : '';
+
+        return md5( "{$scheme}://{$host}{$path}{$query}|{$device}" );
     }
 
     protected function get_cache_file_path() {
@@ -74,8 +92,12 @@ class UpdateMe_Soft_Cache {
     }
 
     public function store_and_output( $html ) {
-        if ( ! is_dir( $this->cache_dir ) ) wp_mkdir_p( $this->cache_dir );
-        @file_put_contents( $this->get_cache_file_path(), $html );
+        $this->ensure_cache_dir();
+
+        $written = @file_put_contents( $this->get_cache_file_path(), $html );
+        if ( false === $written ) {
+            error_log( 'UpdateMe Soft Cache: no se pudo escribir el archivo de caché.' );
+        }
 
         if ( ! headers_sent() ) header( 'X-UpdateMe-Soft-Cache: MISS' );
         return $html;
@@ -90,6 +112,51 @@ class UpdateMe_Soft_Cache {
         if ( ! is_dir( $this->cache_dir ) ) return;
         foreach ( glob( $this->cache_dir . '*.html' ) as $file ) {
             @unlink( $file );
+        }
+    }
+
+    public function purge_url( $url ) {
+        if ( empty( $url ) ) {
+            return false;
+        }
+
+        $this->ensure_cache_dir();
+
+        $purged = false;
+        foreach ( [ 'd', 'm' ] as $device ) {
+            $file = $this->cache_dir . $this->get_cache_key_from_url( $url, $device ) . '.html';
+            if ( file_exists( $file ) ) {
+                @unlink( $file );
+                $purged = true;
+            }
+        }
+
+        return $purged;
+    }
+
+    public function get_cache_stats() {
+        $this->ensure_cache_dir();
+
+        $files = glob( $this->cache_dir . '*.html' );
+        $count = 0;
+        $size  = 0;
+
+        if ( $files ) {
+            foreach ( $files as $file ) {
+                $count++;
+                $size += filesize( $file );
+            }
+        }
+
+        return [
+            'count' => $count,
+            'size'  => $size,
+        ];
+    }
+
+    protected function ensure_cache_dir() {
+        if ( ! is_dir( $this->cache_dir ) ) {
+            wp_mkdir_p( $this->cache_dir );
         }
     }
 }
